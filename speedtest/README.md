@@ -20,10 +20,13 @@ Este script automatiza a coleta de métricas de Download e Upload de múltiplos 
 4. Adicione ao Crontab do Root para execuções agendadas.
 
 ### Obs.: Este script opera para realizar teste em dois links de internets destintos, isso foi realizado da seguinte forma
-1 - No servidor linux VM adicione uma segunda interface de rede, pode trabalhar na mesma faixa de IP da primeira desde que seja IP diferentes.
-2 - No firewall onde chega os 2 links, deve se fazer uma regra de roteamento em caso de firewall mais moderno pode se usar a tecnlogia SD-WAN caso não crie regras de encaminhamento fazendo com que o IP da porta 1 destine-se para o link 1 e o IP da porta 2 destine-se para o link 2
-3 - No scrip nas linhas 73 e 74 ajuste os endereços de IP.
-4 - Já no Zabbix precisa criar os itens conforme os links em questão.
+1. No servidor linux VM adicione uma segunda interface de rede, pode trabalhar na mesma faixa de IP da primeira desde que seja IP diferentes.
+2. No firewall onde chega os 2 links, deve se fazer uma regra de roteamento em caso de firewall mais moderno pode se usar a tecnlogia SD-WAN caso não crie regras de encaminhamento fazendo com que o IP da porta 1 destine-se para o link 1 e o IP da porta 2 destine-se para o link 2
+3. No scrip nas linhas 73 e 74 ajuste os endereços de IP.
+4. Já no Zabbix precisa criar os itens conforme os links em questão.
+
+### Sugestão de automação usando crontab
+- `0 7,13 * * * /bin/bash /home/{SEU USUÁRIO}/zabbix-network-tools/speedtest/speedtest.sh >> /var/log/zabbix-speedtest.log 2>&1`
 
 ---
 **Analista de Redes e Segurança** *Focado em automação e monitoramento inteligente.*
