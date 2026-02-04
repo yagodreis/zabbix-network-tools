@@ -35,7 +35,7 @@ $tokenResponse = Invoke-RestMethod -Method Post `
 $accessToken = $tokenResponse.access_token
 
 $headers = @{
-    Authorization = "Bearer $token"
+    Authorization = "Bearer $accessToken"
 }
 
 #Busca a sessões (resumido é os jobs de backup que já rodaram com status: success, warning ou fail).
@@ -58,7 +58,14 @@ foreach ($item in $sessions.data) {
 
     if ($sessionDate -eq $today) {
 
-        $jobName = $item.name
+        #Remove qualquer valores que não condiz com o nome do job vindo do veeam
+        $jobNameRaw = $item.name
+        $jobName = $jobNameRaw `
+        -replace '\s*\(.*?\)$', '' `
+        -replace '\s+(Offload|Copy|Retry)$', ''
+
+        $jobName = $jobName.Trim()
+
         $status = $item.result.result
 
         switch ($status) {
