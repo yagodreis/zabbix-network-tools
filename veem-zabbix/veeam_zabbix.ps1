@@ -20,20 +20,22 @@ public class TrustAllCertsPolicy : ICertificatePolicy {
 [System.Net.ServicePointManager]::CertificatePolicy = New-Object TrustAllCertsPolicy
 
 #Importa usuário e senha criptografa do arquivo .xml gerado atravez do xport-Clixml
-$cred = Import-Clixml "C:\Monitorar\Veeam Zabbix\veeam_api_cred.xml"
+$cred = Import-Clixml "C:\Scripts\VeeamZabbix\veeam_api_cred.xml"
 
-#Gera o token via POST ao veeam bakcup necessário toda vez que for realizar qualquer comando via API
-#Dura em torno de 900sec
+#Gera o token via POST ao veeam bakcup necessário toda vez que for realizar qualquer comando via API, dura em torno de 900sec
 #Consulta o XML descriptografa a senha do usuário AD e fornece ao body para solicitar o Token
 $body = "grant_type=password&username=$($cred.UserName)&password=$($cred.GetNetworkCredential().Password)"
 
+#Solicita o token via POST na API.
 $tokenResponse = Invoke-RestMethod -Method Post `
     -Uri "$veeamServer/api/oauth2/token" `
     -Body $body `
     -ContentType "application/x-www-form-urlencoded"
 
+#Armazena o token.
 $accessToken = $tokenResponse.access_token
 
+#Criar o header com o Token
 $headers = @{
     Authorization = "Bearer $accessToken"
 }
@@ -52,22 +54,46 @@ $failed = 0
 
 $resultByJob = @{}
 
+#Percorre todos os JOBS retornados do GET da API do Veeam, realiza o Trim removendo o tipo do Bakcup Job que é anexado no final do nome.
+#E add dentro do objeto Name colocando como deafult o valor 0 para seu status, pois caso ele não rodou ainda no dia corrente ele é tratado no Grafana como Pending.
 foreach ($item in $sessions.data) {
 
-    $sessionDate = ([DateTime]::Parse($item.creationTime)).ToLocalTime().Date
+    $jobNameRaw = $item.name
 
-    if ($sessionDate -eq $today) {
-
-        #Remove qualquer valores que não condiz com o nome do job vindo do veeam
-        $jobNameRaw = $item.name
-        $jobName = $jobNameRaw `
+    $jobName = $jobNameRaw `
         -replace '\s*\(.*?\)$', '' `
         -replace '\s+(Offload|Copy|Retry)$', ''
 
+    $jobName = $jobName.Trim()
+
+    # Inicializa como Pending se ainda não existir
+    if (-not $resultByJob.ContainsKey($jobName)) {
+        $resultByJob[$jobName] = 0
+    }
+}
+
+#percorrer os jobs que retornaram do GET da API para tratar os status
+foreach ($item in $sessions.data) {
+
+    #Captura a Data de criação do ultimo running do JOB do backup para verificar se o bate com a data do dia atual.
+    $sessionDate = ([DateTime]::Parse($item.creationTime)).ToLocalTime().Date
+
+    #Se a data do dia atual for igual a data do JOB segue:
+    if ($sessionDate -eq $today) {
+
+        #Captura o nome do Job
+        $jobNameRaw = $item.name
+
+        #Remove qualquer valores que não condiz com o nome do job vindo do veeam
+        $jobName = $jobNameRaw `
+            -replace '\s*\(.*?\)$', '' `
+            -replace '\s+(Offload|Copy|Retry)$', ''
         $jobName = $jobName.Trim()
 
+        #Captura o STATUS atual do Job
         $status = $item.result.result
 
+        #Verifica o status e seta o valor somando quando JOBS de sucesso, aviso ou falha.
         switch ($status) {
             "Success" { $value = 1; $success++ }
             "Warning" { $value = 2; $warning++ }
@@ -75,15 +101,8 @@ foreach ($item in $sessions.data) {
             default { $value = 0 }
         }
 
-        # Se rodar mais de uma vez no dia, prioriza o pior status
-        #Caso exista alguma valor já atualiza para o pior status
-        if ($resultByJob.ContainsKey($jobName)) {
-            if ($value -gt $resultByJob[$jobName]) {
-                $resultByJob[$jobName] = $value
-            }
-        }
-        #se não seta o pior status
-        else {
+        #Se o status atual for pior que o que já está salvo, então atualiza.
+        if ($value -gt $resultByJob[$jobName]) {
             $resultByJob[$jobName] = $value
         }
     }
@@ -101,6 +120,7 @@ foreach ($job in $resultByJob.Keys) {
     $val = $resultByJob[$job]
 
     & "$zabbixSender" -z $zabbixServer -s $zabbixHost -k $key -o $val
-}
 
-Write-Output "Envio para Zabbix concluído com sucesso!"
+    #Write-Output $key
+    #Write-Output $val
+}
