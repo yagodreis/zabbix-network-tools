@@ -45,18 +45,27 @@ $sessions = Invoke-RestMethod -Method Get `
     -Uri "$veeamServer/api/v1/sessions" `
     -Headers $headers
 
-#Inicio do processo dos dados e tratativas para envios ao zabbix
-$today = (Get-Date).Date
-
 $success = 0
 $warning = 0
 $failed = 0
 
 $resultByJob = @{}
 
+#Filtra os JOBS realizados nas ultimas 24H e organiza pela data de criação do JOb
+$now = Get-Date
+$since = $now.AddHours(-24)
+
+$sessionsToday = $sessions.data |
+Where-Object {
+    ([DateTime]::Parse($_.creationTime)) -ge $since
+} |
+Sort-Object {
+    [DateTime]::Parse($_.creationTime)
+}
+
 #Percorre todos os JOBS retornados do GET da API do Veeam, realiza o Trim removendo o tipo do Bakcup Job que é anexado no final do nome.
 #E add dentro do objeto Name colocando como deafult o valor 0 para seu status, pois caso ele não rodou ainda no dia corrente ele é tratado no Grafana como Pending.
-foreach ($item in $sessions.data) {
+foreach ($item in $sessionsToday) {
 
     $jobNameRaw = $item.name
 
@@ -73,39 +82,30 @@ foreach ($item in $sessions.data) {
 }
 
 #percorrer os jobs que retornaram do GET da API para tratar os status
-foreach ($item in $sessions.data) {
+foreach ($item in $sessionsToday) {
 
-    #Captura a Data de criação do ultimo running do JOB do backup para verificar se o bate com a data do dia atual.
-    $sessionDate = ([DateTime]::Parse($item.creationTime)).ToLocalTime().Date
+    #Captura o nome do Job
+    $jobNameRaw = $item.name
 
-    #Se a data do dia atual for igual a data do JOB segue:
-    if ($sessionDate -eq $today) {
+    #Remove qualquer valores que não condiz com o nome do job vindo do veeam
+    $jobName = $jobNameRaw `
+        -replace '\s*\(.*?\)$', '' `
+        -replace '\s+(Offload|Copy|Retry)$', ''
+    $jobName = $jobName.Trim()
 
-        #Captura o nome do Job
-        $jobNameRaw = $item.name
+    #Captura o STATUS atual do Job
+    $status = $item.result.result
 
-        #Remove qualquer valores que não condiz com o nome do job vindo do veeam
-        $jobName = $jobNameRaw `
-            -replace '\s*\(.*?\)$', '' `
-            -replace '\s+(Offload|Copy|Retry)$', ''
-        $jobName = $jobName.Trim()
-
-        #Captura o STATUS atual do Job
-        $status = $item.result.result
-
-        #Verifica o status e seta o valor somando quando JOBS de sucesso, aviso ou falha.
-        switch ($status) {
-            "Success" { $value = 1; $success++ }
-            "Warning" { $value = 2; $warning++ }
-            "Failed" { $value = 3; $failed++ }
-            default { $value = 0 }
-        }
-
-        #Se o status atual for pior que o que já está salvo, então atualiza.
-        if ($value -gt $resultByJob[$jobName]) {
-            $resultByJob[$jobName] = $value
-        }
+    #Verifica o status e seta o valor somando quando JOBS de sucesso, aviso ou falha.
+    switch ($status) {
+        "Success" { $value = 1; $success++ }
+        "Warning" { $value = 2; $warning++ }
+        "Failed" { $value = 3; $failed++ }
+        default { $value = 0 }
     }
+
+    #Armazena os valores do status no Job no array
+    $resultByJob[$jobName] = $value
 }
 
 
